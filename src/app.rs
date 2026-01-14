@@ -28,7 +28,7 @@ pub struct VisualizerApp {
 
 impl VisualizerApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        let root_dir = PathBuf::from("..");
+        let root_dir = PathBuf::from(".");
         let mut app = Self {
             profile_data: None,
             error_msg: None,
