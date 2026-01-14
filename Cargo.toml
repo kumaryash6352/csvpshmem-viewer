@@ -1,0 +1,15 @@
+[package]
+name = "visualizer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+eframe = "0.33"
+egui = "0.33"
+egui_plot = "0.34"
+csv = "1.4"
+serde = { version = "1.0", features = ["derive"] }
+anyhow = "1.0"
+
+[profile.dev.package."*"]
+opt-level = 2
