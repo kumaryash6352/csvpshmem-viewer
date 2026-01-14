@@ -343,6 +343,18 @@ impl eframe::App for VisualizerApp {
                                             ui.label(format!("BW: {:.2} GB/s", bw_gbps));
                                         }
                                     }
+
+                                    if let Some(trace) = &e.raw.symboltrace {
+                                        if !trace.is_empty() {
+                                            ui.separator();
+                                            ui.label(egui::RichText::new("Call Stack:").strong());
+                                            for line in trace.split('|') {
+                                                if !line.trim().is_empty() {
+                                                    ui.label(egui::RichText::new(line).small());
+                                                }
+                                            }
+                                        }
+                                    }
                                 });
                             }
                         }

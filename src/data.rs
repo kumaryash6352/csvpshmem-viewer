@@ -18,6 +18,8 @@ pub struct RawEvent {
     pub size_bytes: u64,
     #[serde(rename = "Stacktrace")]
     pub stacktrace: String,
+    #[serde(rename = "Symboltrace", default)]
+    pub symboltrace: Option<String>,
 }
 
 #[derive(Debug, Clone)]
