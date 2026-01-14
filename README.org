@@ -1,0 +1,18 @@
+* INTRODUCTION
+
+Given the CSVs produced by csvpshmem, provide a semi reasonable
+visual.
+
+This is barebones.
+
+* USAGE
+#+BEGIN_SRC bash
+$ ls *.csv
+pperf.000.csv   pperf.001.csv   pperf.002.csv   pperf.003.csv ...
+$ cargo run --release
+# or
+$ cargo build --release
+$ ./target/release/visualizer
+#+END_SRC
+
+
