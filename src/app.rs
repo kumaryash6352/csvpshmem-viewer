@@ -439,7 +439,7 @@ impl eframe::App for VisualizerApp {
 
             // aggregation
             // comms[(src, dst)] = bytes
-            let mut comms: HashMap<(u32, u32), u64> = HashMap::new();
+            let mut comms: HashMap<(u32, u32), (u64, u64)> = HashMap::new();
 
             for i in start_idx..data.events.len() {
                 let event = &data.events[i];
@@ -451,10 +451,10 @@ impl eframe::App for VisualizerApp {
                     let dst = event.raw.target_pe as u32;
                     if src != dst {
                         if self.show_tx && event.raw.bytes_tx > 0 {
-                            *comms.entry((src, dst)).or_insert(0) += event.raw.bytes_tx;
+                            comms.entry((src, dst)).or_insert((0, 0)).0 += event.raw.bytes_tx;
                         }
                         if self.show_rx && event.raw.bytes_rx > 0 {
-                            *comms.entry((dst, src)).or_insert(0) += event.raw.bytes_rx;
+                            comms.entry((dst, src)).or_insert((0, 0)).1 += event.raw.bytes_rx;
                         }
                     }
                 }
@@ -483,34 +483,35 @@ impl eframe::App for VisualizerApp {
                 }
             }
 
-            // interaction stats if hovered
-            let mut interaction_bytes: HashMap<u32, u64> = HashMap::new();
+            // interaction stats if hovered: (tx, rx)
+            let mut interaction_bytes: HashMap<u32, (u64, u64)> = HashMap::new();
             let mut max_interaction = 0;
 
             if let Some(h) = hovered_pe {
-                for ((src, dst), bytes) in &comms {
+                for ((src, dst), (tx, rx)) in &comms {
                     if *src == h {
-                        let b = *interaction_bytes.get(dst).unwrap_or(&0) + bytes;
-                        interaction_bytes.insert(*dst, b);
-                        if b > max_interaction {
-                            max_interaction = b;
-                        }
+                        let e = interaction_bytes.entry(*dst).or_insert((0, 0));
+                        e.0 += tx;
+                        e.1 += rx;
+                        max_interaction = max_interaction.max(e.0 + e.1);
                     } else if *dst == h {
-                        let b = *interaction_bytes.get(src).unwrap_or(&0) + bytes;
-                        interaction_bytes.insert(*src, b);
-                        if b > max_interaction {
-                            max_interaction = b;
-                        }
+                        let e = interaction_bytes.entry(*src).or_insert((0, 0));
+                        e.0 += tx;
+                        e.1 += rx;
+                        max_interaction = max_interaction.max(e.0 + e.1);
                     }
                 }
             }
 
             // bandwidth arrows
-            for ((src, dst), bytes) in &comms {
+            for ((src, dst), (tx, rx)) in &comms {
                 let p1 = get_pos(*src);
                 let p2 = get_pos(*dst);
 
-                let scaled_bytes = *bytes;
+                let total = *tx + *rx;
+                if total == 0 {
+                    continue;
+                }
                 let mut is_muted = false;
 
                 if let Some(h) = hovered_pe {
@@ -519,23 +520,21 @@ impl eframe::App for VisualizerApp {
                     }
                 }
 
-                let width = ((scaled_bytes as f32).max(1.0).ln() / 2.0).clamp(0.5, 8.0);
-                let mut alpha = ((scaled_bytes as f32) / 1000.0).clamp(50.0, 200.0) as u8;
+                let width = ((total as f32).max(1.0).ln() / 2.0).clamp(0.5, 8.0);
+                let alpha = ((total as f32) / 1000.0).clamp(50.0, 200.0) as u8;
 
-                // this does not work as intended
-                if is_muted {
-                    alpha = (alpha as f32 * 0.1) as u8;
-                }
+                let r = (255.0 * (*tx as f32 / total as f32)) as u8;
+                let b = (255.0 * (*rx as f32 / total as f32)) as u8;
+                let g = 0;
 
-                let color = Color32::from_rgba_premultiplied(200, 100, 100, alpha);
+                let color = Color32::from_rgba_premultiplied(r, g, b, alpha);
 
-                // but this does
                 let color = if is_muted {
-                    // convert to grayscale
+                    // convert to grayscale and lower alpha
                     let gray = (color.r() as f32 * 0.2126
                         + color.g() as f32 * 0.7152
                         + color.b() as f32 * 0.0722) as u8;
-                    Color32::from_rgba_premultiplied(gray, gray, gray, alpha)
+                    Color32::from_rgba_premultiplied(gray, gray, gray, (alpha as f32 * 0.1) as u8)
                 } else {
                     color
                 };
@@ -586,14 +585,25 @@ impl eframe::App for VisualizerApp {
                         // hovered node
                         fill_color = Color32::from_rgb(100, 100, 200); // highlight
                         stroke_width = 2.0;
-                    } else if let Some(bytes) = interaction_bytes.get(&i) {
+                    } else if let Some((tx, rx)) = interaction_bytes.get(&i) {
                         // node interacting with hovered node
-                        if max_interaction > 0 {
-                            // todo: this looks ugly
-                            let ratio = *bytes as f32 / max_interaction as f32;
-                            let r = (50.0 + (255.0 - 50.0) * ratio) as u8;
-                            let g = (50.0 + (100.0 - 50.0) * ratio) as u8;
-                            let b = (50.0 + (0.0 - 50.0) * ratio) as u8;
+                        let total = tx + rx;
+                        if total > 0 && max_interaction > 0 {
+                            let ratio_tx = *tx as f32 / total as f32;
+                            let ratio_rx = *rx as f32 / total as f32;
+
+                            let r_target = (255.0 * ratio_tx) as u8;
+                            let b_target = (255.0 * ratio_rx) as u8;
+
+                            let intensity = (total as f32 / max_interaction as f32)
+                                .sqrt()
+                                .clamp(0.0, 1.0);
+
+                            let base = 50.0;
+                            let r = (base + (r_target as f32 - base) * intensity) as u8;
+                            let g = (base * (1.0 - intensity)) as u8;
+                            let b = (base + (b_target as f32 - base) * intensity) as u8;
+
                             fill_color = Color32::from_rgb(r, g, b);
                         }
                     } else {
