@@ -24,6 +24,10 @@ pub struct VisualizerApp {
     // cache
     // this isn't working as intended
     function_colors: HashMap<String, Color32>,
+
+    // filters
+    show_rx: bool,
+    show_tx: bool,
 }
 
 impl VisualizerApp {
@@ -39,6 +43,8 @@ impl VisualizerApp {
             playing: false,
             playback_speed: 1.0,
             function_colors: HashMap::new(),
+            show_rx: true,
+            show_tx: true,
         };
 
         match ProfileData::load_from_dir(&root_dir) {
@@ -99,7 +105,9 @@ impl eframe::App for VisualizerApp {
             return;
         };
 
-        // Handle Playback
+        // todo: is there a way to integrate the scaling
+        // better with the length of playback? maybe something like
+        // default to n% of current viewport width's worth of time?
         if self.playing {
             let dt = ctx.input(|i| i.stable_dt) as f64;
             self.cursor_time += dt * self.playback_speed;
@@ -110,15 +118,14 @@ impl eframe::App for VisualizerApp {
             ctx.request_repaint();
         }
 
-        // Top Panel for Controls
+        // todo: same thing here, adjust slider bounds
+        // and range of magnitude based on viewport length
         egui::TopBottomPanel::top("controls").show(ctx, |ui| {
             ui.horizontal(|ui| {
+                // todo: find a way to get emoji-style rendering without
+                // an actual emjoi as this is causing issues on cluster
                 if ui
-                    .button(if self.playing {
-                        "⏸ Pause"
-                    } else {
-                        "▶ Play"
-                    })
+                    .button(if self.playing { "|| Pause" } else { "|> Play" })
                     .clicked()
                 {
                     if !self.playing && self.cursor_time >= data.max_time - 0.00001 {
@@ -128,21 +135,32 @@ impl eframe::App for VisualizerApp {
                 }
 
                 ui.label("Speed:");
-                ui.add(egui::Slider::new(&mut self.playback_speed, 0.1..=10.0).logarithmic(true));
+                ui.add(
+                    egui::Slider::new(&mut self.playback_speed, 0.1..=data.max_time)
+                        .logarithmic(true),
+                );
 
                 ui.separator();
                 ui.label(format!("Time: {:.6}s", self.cursor_time));
                 ui.separator();
                 ui.label("Window:");
                 ui.add(
-                    egui::Slider::new(&mut self.window_size_seconds, 0.0001..=0.1)
-                        .text("s")
-                        .logarithmic(true),
+                    egui::Slider::new(
+                        &mut self.window_size_seconds,
+                        0.0001..=(data.max_time - data.min_time),
+                    )
+                    .text("s")
+                    .logarithmic(true),
                 );
+
+                ui.separator();
+                ui.checkbox(&mut self.show_rx, "RX");
+                ui.checkbox(&mut self.show_tx, "TX");
             });
         });
 
-        // Bottom Panel for Timeline
+        // bottom panel
+        // todo: change this to use egui docking so you can pop out the timeline
         egui::TopBottomPanel::bottom("timeline")
             .resizable(true)
             .min_height(200.0)
@@ -333,13 +351,32 @@ impl eframe::App for VisualizerApp {
                                 )
                                 .show(|ui: &mut egui::Ui| {
                                     ui.strong(&e.raw.function);
+                                    if let Some(hostname) = data.pe_hostnames.get(&e.source_pe) {
+                                        ui.small(format!("PE {} on {hostname}", e.source_pe));
+                                    }
                                     ui.label(format!("Time: {:.9}s", e.raw.duration_sec));
-                                    if e.raw.size_bytes > 0 {
-                                        ui.label(format!("Data: {} bytes", e.raw.size_bytes));
+                                    let total_bytes = e.raw.bytes_rx + e.raw.bytes_tx;
+                                    if total_bytes > 0 {
+                                        if e.raw.bytes_rx > 0 && e.raw.bytes_tx > 0 {
+                                            ui.label(format!(
+                                                "Data: {} bytes (RX: {}, TX: {})",
+                                                total_bytes, e.raw.bytes_rx, e.raw.bytes_tx
+                                            ));
+                                        } else if e.raw.bytes_rx > 0 {
+                                            ui.label(format!(
+                                                "Data: {} bytes (RX)",
+                                                e.raw.bytes_rx
+                                            ));
+                                        } else {
+                                            ui.label(format!(
+                                                "Data: {} bytes (TX)",
+                                                e.raw.bytes_tx
+                                            ));
+                                        }
+
                                         if e.raw.duration_sec > 0.0 {
-                                            let bw_gbps = (e.raw.size_bytes as f64
-                                                / e.raw.duration_sec)
-                                                / 1e9;
+                                            let bw_gbps =
+                                                (total_bytes as f64 / e.raw.duration_sec) / 1e9;
                                             ui.label(format!("BW: {:.2} GB/s", bw_gbps));
                                         }
                                     }
@@ -413,7 +450,12 @@ impl eframe::App for VisualizerApp {
                     let src = event.source_pe;
                     let dst = event.raw.target_pe as u32;
                     if src != dst {
-                        *comms.entry((src, dst)).or_insert(0) += event.raw.size_bytes;
+                        if self.show_tx && event.raw.bytes_tx > 0 {
+                            *comms.entry((src, dst)).or_insert(0) += event.raw.bytes_tx;
+                        }
+                        if self.show_rx && event.raw.bytes_rx > 0 {
+                            *comms.entry((dst, src)).or_insert(0) += event.raw.bytes_rx;
+                        }
                     }
                 }
             }

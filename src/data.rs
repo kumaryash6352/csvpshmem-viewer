@@ -1,4 +1,5 @@
 use anyhow::Result;
+use egui::ahash::HashMap;
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,10 +15,14 @@ pub struct RawEvent {
     pub duration_sec: f64,
     #[serde(rename = "Target_PE")]
     pub target_pe: i32,
-    #[serde(rename = "Size_Bytes")]
-    pub size_bytes: u64,
+    #[serde(rename = "Bytes_RX")]
+    pub bytes_rx: u64,
+    #[serde(rename = "Bytes_TX")]
+    pub bytes_tx: u64,
     #[serde(rename = "Stacktrace")]
     pub stacktrace: String,
+    #[serde(rename = "Extra", default)]
+    pub extra: Option<String>,
     #[serde(rename = "Symboltrace", default)]
     pub symboltrace: Option<String>,
 }
@@ -32,6 +37,7 @@ pub struct Event {
 pub struct ProfileData {
     pub events: Vec<Event>,
     pub pe_count: u32,
+    pub pe_hostnames: HashMap<u32, String>,
     pub min_time: f64,
     pub max_time: f64,
 }
@@ -40,6 +46,7 @@ impl ProfileData {
     pub fn load_from_dir(dir: &Path) -> Result<Self> {
         let mut events = Vec::new();
         let mut max_pe = 0;
+        let mut pe_hostnames = HashMap::default();
 
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
@@ -54,6 +61,16 @@ impl ProfileData {
                                 max_pe = pe_id;
                             }
                             let loaded_events = Self::load_file(&path, pe_id)?;
+                            // first event is the initialize (hopefully)
+                            let initialize = loaded_events.first().expect("at least one event");
+                            pe_hostnames.insert(
+                                pe_id,
+                                initialize
+                                    .raw
+                                    .extra
+                                    .clone()
+                                    .expect("hostname to be Extra of first event"),
+                            );
                             events.extend(loaded_events);
                         }
                     }
@@ -79,6 +96,7 @@ impl ProfileData {
         Ok(Self {
             events,
             pe_count: max_pe + 1,
+            pe_hostnames,
             min_time,
             max_time,
         })
