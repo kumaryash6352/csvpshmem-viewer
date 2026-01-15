@@ -63,14 +63,20 @@ impl ProfileData {
                             let loaded_events = Self::load_file(&path, pe_id)?;
                             // first event is the initialize (hopefully)
                             let initialize = loaded_events.first().expect("at least one event");
-                            pe_hostnames.insert(
-                                pe_id,
-                                initialize
-                                    .raw
-                                    .extra
-                                    .clone()
-                                    .expect("hostname to be Extra of first event"),
-                            );
+                            let raw = initialize
+                                .raw
+                                .extra
+                                .clone()
+                                .expect("hostname to be Extra of first event");
+                            let hostname = raw
+                                .split(';')
+                                .filter(|s| s.starts_with("host="))
+                                .next()
+                                .expect("hostname to be in Extra of first event")
+                                .split('=')
+                                .nth(1)
+                                .expect("hostname to be populated in Extra of first event");
+                            pe_hostnames.insert(pe_id, hostname.to_string());
                             events.extend(loaded_events);
                         }
                     }
